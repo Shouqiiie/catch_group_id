@@ -1,0 +1,23 @@
+{
+  "name": "whatsapp-group-viewer",
+  "version": "1.0.0",
+  "description": "Simple Node.js app to display WhatsApp groups using whatsapp-web.js and Express.js",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1",
+    "whatsapp-web.js": "^1.23.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "whatsapp-web.js",
+    "express",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "MIT"
+}

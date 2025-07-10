@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Group Sync</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { transition: background-color 0.3s, color 0.3s; }
+        .table-hover tbody tr:hover { background-color: rgba(var(--bs-table-hover-bg-rgb), .5) !important; }
+        #qr-container, #loading, #group-list { display: none; }
+        .form-check-input:checked { background-color: #198754; border-color: #198754; }
+        .btn-outline-secondary { border-color: #6c757d; }
+        .btn-outline-secondary:hover { background-color: #6c757d; color: white; }
+    </style>
+</head>
+<body class="bg-light text-dark">
+
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h3">WhatsApp Group Sync</h1>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="darkModeToggle">
+                <label class="form-check-label" for="darkModeToggle"><i class="bi bi-moon-stars-fill"></i></label>
+            </div>
+        </div>
+
+        <div id="status-container" class="alert alert-info d-flex align-items-center">
+            <i class="bi bi-info-circle-fill me-2"></i>
+            <span id="status-message">Connecting to WhatsApp...</span>
+        </div>
+
+        <div id="qr-container" class="text-center p-4 border rounded shadow-sm bg-white">
+            <p>Scan this QR code with your WhatsApp</p>
+            <img id="qr-code" src="" alt="QR Code" class="img-fluid">
+        </div>
+
+        <div id="loading" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading groups...</p>
+        </div>
+
+        <div id="group-list">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <button id="refresh-btn" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+                <span id="group-count" class="badge bg-success rounded-pill"></span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>Group Name</th>
+                            <th>Participants</th>
+                            <th>Group ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="groups-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        const statusMsg = document.getElementById('status-message');
+        const statusContainer = document.getElementById('status-container');
+        const qrContainer = document.getElementById('qr-container');
+        const qrCodeImg = document.getElementById('qr-code');
+        const loadingDiv = document.getElementById('loading');
+        const groupListDiv = document.getElementById('group-list');
+        const groupsTbody = document.getElementById('groups-tbody');
+        const groupCountBadge = document.getElementById('group-count');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const darkModeToggle = document.getElementById('darkModeToggle');
+
+        const setDarkMode = (isDark) => {
+            document.body.classList.toggle('bg-dark', isDark);
+            document.body.classList.toggle('text-light', isDark);
+            document.body.classList.toggle('bg-light', !isDark);
+            document.body.classList.toggle('text-dark', !isDark);
+            document.querySelectorAll('.table').forEach(table => table.classList.toggle('table-dark', isDark));
+            document.querySelectorAll('.alert').forEach(alert => {
+                alert.classList.toggle('alert-dark', isDark);
+                alert.classList.toggle('alert-info', !isDark);
+            });
+            localStorage.setItem('darkMode', isDark);
+        };
+
+        if (localStorage.getItem('darkMode') === 'true') {
+            darkModeToggle.checked = true;
+            setDarkMode(true);
+        }
+
+        darkModeToggle.addEventListener('change', () => setDarkMode(darkModeToggle.checked));
+
+        refreshBtn.addEventListener('click', () => {
+            loadingDiv.style.display = 'block';
+            groupListDiv.style.display = 'none';
+            socket.emit('getGroups');
+        });
+
+        socket.on('qr', (qr) => {
+            qrContainer.style.display = 'block';
+            loadingDiv.style.display = 'none';
+            groupListDiv.style.display = 'none';
+            qrCodeImg.src = qr;
+            statusMsg.textContent = 'Please scan the QR code.';
+            statusContainer.className = 'alert alert-warning d-flex align-items-center';
+        });
+
+        socket.on('ready', () => {
+            qrContainer.style.display = 'none';
+            loadingDiv.style.display = 'block';
+            statusMsg.textContent = 'WhatsApp connected! Loading groups...';
+            statusContainer.className = 'alert alert-success d-flex align-items-center';
+        });
+
+        socket.on('groups', (groups) => {
+            loadingDiv.style.display = 'none';
+            groupListDiv.style.display = 'block';
+            groupsTbody.innerHTML = '';
+            groups.forEach((group, index) => {
+                const row = `<tr>
+                    <td>${index + 1}</td>
+                    <td>${group.name || 'N/A'}</td>
+                    <td>${group.participantCount}</td>
+                    <td><small class="text-muted">${group.id}</small></td>
+                </tr>`;
+                groupsTbody.innerHTML += row;
+            });
+            groupCountBadge.textContent = `${groups.length} groups`;
+        });
+
+        socket.on('disconnected', () => {
+            groupListDiv.style.display = 'none';
+            loadingDiv.style.display = 'none';
+            statusMsg.textContent = 'Disconnected. Attempting to reconnect...';
+            statusContainer.className = 'alert alert-danger d-flex align-items-center';
+        });
+
+    </script>
+</body>
+</html>
