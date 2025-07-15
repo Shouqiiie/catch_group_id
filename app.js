@@ -1,14 +1,37 @@
 const express = require('express');
 const { Client } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const qrImage = require('qrcode');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
-// Variable to store client and connection status
+// Function to find an available port
+function findAvailablePort(startPort) {
+    return new Promise((resolve, reject) => {
+        const server = app.listen(startPort, () => {
+            const port = server.address().port;
+            server.close(() => {
+                resolve(port);
+            });
+        });
+        
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                // Try next port
+                findAvailablePort(startPort + 1).then(resolve).catch(reject);
+            } else {
+                reject(err);
+            }
+        });
+    });
+}
+
+// Variable to store client, connection status, and QR code
 let client = null;
 let isConnected = false;
 let groups = [];
+let qrCodeData = null;
 
 // --- Modern HTML and CSS Template ---
 const modernHtmlTemplate = (title, bodyContent) => `
@@ -60,6 +83,19 @@ const modernHtmlTemplate = (title, bodyContent) => `
             .status-disconnected {
                 background-color: #dc3545;
                 color: #ffffff;
+            }
+            .qr-container {
+                text-align: center;
+                margin: 20px 0;
+                padding: 20px;
+                background-color: #2c2c2c;
+                border-radius: 8px;
+            }
+            .qr-container img {
+                max-width: 100%;
+                height: auto;
+                border: 5px solid #fff;
+                border-radius: 8px;
             }
             table {
                 width: 100%;
@@ -134,12 +170,13 @@ async function initWhatsApp() {
         client.on('qr', (qr) => {
             console.log('\n=== SCAN THIS QR CODE WITH YOUR WHATSAPP ===\n');
             qrcode.generate(qr, { small: true });
-            console.log('\n==========================================\n');
+            qrCodeData = qr; // Save QR code data
         });
 
         client.on('ready', async () => {
             console.log('✅ WhatsApp connected successfully!');
             isConnected = true;
+            qrCodeData = null; // Clear QR code data after connection
             await loadGroups();
         });
 
@@ -183,19 +220,44 @@ async function loadGroups() {
 }
 
 // Route for the main page
-app.get('/', (req, res) => {
-    const statusClass = isConnected ? 'status-connected' : 'status-disconnected';
-    const statusText = isConnected ? '✅ Connected' : '❌ Not Connected';
-
-    const bodyContent = `
-        <h1>WhatsApp Group Viewer</h1>
-        <p>An application to view your WhatsApp group list with a modern interface.</p>
-        <div class="status-card ${statusClass}">${statusText}</div>
-        <p>${!isConnected ? 'If not connected, please scan the QR code that appears in your terminal.' : 'You can now view your group list.'}</p>
-        <a href="/grup" class="btn">View Group List</a>
-    `;
-    
-    res.send(modernHtmlTemplate('WhatsApp Group Viewer', bodyContent));
+app.get('/', async (req, res) => {
+    if (isConnected) {
+        const bodyContent = `
+            <h1>WhatsApp Group Viewer</h1>
+            <p>An application to view your WhatsApp group list with a modern interface.</p>
+            <div class="status-card status-connected">✅ Connected</div>
+            <p>You can now view your group list.</p>
+            <a href="/grup" class="btn">View Group List</a>
+        `;
+        res.send(modernHtmlTemplate('WhatsApp Group Viewer', bodyContent));
+    } else if (qrCodeData) {
+        const qrCodeImageUrl = await qrImage.toDataURL(qrCodeData);
+        const bodyContent = `
+            <h1>Scan QR Code</h1>
+            <p>Please scan the QR code below with your WhatsApp to connect.</p>
+            <div class="qr-container">
+                <img src="${qrCodeImageUrl}" alt="QR Code">
+            </div>
+            <p>The page will refresh automatically after you scan.</p>
+            <script>
+                setTimeout(() => {
+                    location.reload();
+                }, 15000); // Auto-refresh every 15 seconds
+            </script>
+        `;
+        res.send(modernHtmlTemplate('Scan QR Code', bodyContent));
+    } else {
+        const bodyContent = `
+            <h1>WhatsApp Group Viewer</h1>
+            <p>An application to view your WhatsApp group list with a modern interface.</p>
+            <div class="status-card status-disconnected">❌ Not Connected</div>
+            <p>Initializing WhatsApp... Please wait a moment and then refresh the page.</p>
+            <div class="actions">
+                <a href="/" class="btn">Refresh Page</a>
+            </div>
+        `;
+        res.send(modernHtmlTemplate('WhatsApp Group Viewer', bodyContent));
+    }
 });
 
 // Route to display the group list
@@ -204,7 +266,7 @@ app.get('/grup', async (req, res) => {
         const bodyContent = `
             <h1>WhatsApp Group List</h1>
             <div class="status-card status-disconnected">❌ WhatsApp is not connected.</div>
-            <p>Please scan the QR code in the terminal first.</p>
+            <p>Please go back to the home page to scan the QR code.</p>
             <div class="actions">
                 <a href="/" class="btn btn-secondary">Back to Home</a>
             </div>
@@ -248,14 +310,30 @@ app.get('/grup', async (req, res) => {
     res.send(modernHtmlTemplate('WhatsApp Group List', bodyContent));
 });
 
-// Start Express server
-app.listen(PORT, () => {
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
-    console.log(`📱 Access the group list at http://localhost:${PORT}/grup`);
-    console.log('');
-    
-    initWhatsApp();
-});
+// Start Express server with dynamic port handling
+async function startServer() {
+    try {
+        const availablePort = await findAvailablePort(PORT);
+        
+        app.listen(availablePort, () => {
+            console.log(`🚀 Server running at http://localhost:${availablePort}`);
+            console.log(`📱 Access the application at http://localhost:${availablePort}`);
+            if (availablePort !== PORT) {
+                console.log(`⚠️  Note: Default port ${PORT} was busy, using port ${availablePort} instead`);
+            }
+            console.log('');
+            
+            initWhatsApp();
+        });
+        
+    } catch (error) {
+        console.error('❌ Failed to start server:', error);
+        process.exit(1);
+    }
+}
+
+// Start the server
+startServer();
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
